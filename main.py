@@ -89,6 +89,19 @@ def wait_for_user_login_collect_localstorage(driver, timeout=MAX_WAIT_FOR_LOGIN)
     print("[-] Не удалось обнаружить признаки авторизации в localStorage за отведённое время.")
     return None
 
+def click_webapp_button(driver, wait):
+    """Находит и нажимает на кнопку WebApp с указанным классом."""
+    try:
+        # Ждем появления кнопки и кликаем по ней
+        button_selector = "div.new-message-bot-commands-view"
+        button = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, button_selector)))
+        button.click()
+        print("[+] Кнопка 'START THE GAME' успешно нажата.")
+        return True
+    except Exception as e:
+        print(f"[-] Не удалось найти или нажать кнопку: {e}")
+        return False
+
 def main():
     options = webdriver.FirefoxOptions()
     options.add_argument("--new-window")
@@ -103,7 +116,7 @@ def main():
             # Если файл есть — читаем и пишем его в localStorage перед загрузкой целевой страницы
             print("[*] Найден localstorage.json — загружаю в браузер.")
             driver.get("https://web.telegram.org")  # сначала открыть тот же домен, чтобы иметь доступ к localStorage
-            time.sleep(1)  # даём немного инициализироваться
+            time.sleep(1)  # даём немного piydi инициализироваться
             with open(LOCALSTORAGE_JSON_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
             write_localstorage_to_browser(driver, data)
@@ -119,13 +132,21 @@ def main():
             except Exception:
                 time.sleep(2)
             print("[+] Готово — страница открыта с загруженным localStorage.")
+            target = TARGET_CHAT_URL_TEMPLATE.format(BOT_USERNAME)
+            driver.execute_script("window.open(arguments[0], '_blank');", target)
+            driver.switch_to.window(driver.window_handles[-1])
+            
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.message, div.msg, div.im_dialogs")))
+            click_webapp_button(driver, wait)
+            
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "button.popup-button.btn.primary.rp")))
+            click_webapp_button(driver, wait)
             return
 
         # Если файла нет — открываем страницу и ждём, пока пользователь залогинится вручную
         print("[*] localstorage.json не найден. Открываю Web Telegram — дождись регистрации/входа в течение", MAX_WAIT_FOR_LOGIN, "сек.")
         driver.get(WEB_TELEGRAM_URL)
         time.sleep(1)
-
         # Возможны разные варианты: пользователь сначала кликает Login -> вводит код, либо сканит QR и т.д.
         # Мы будем опрашивать localStorage и ждать появления признаков авторизации.
         found = wait_for_user_login_collect_localstorage(driver, timeout=MAX_WAIT_FOR_LOGIN)
