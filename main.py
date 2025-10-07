@@ -206,7 +206,86 @@ def subscribe_to_channel(driver, wait, channel_name):
         except Exception as e:
             print(f"[-] Ошибка при возврате в основное окно: {e}")
 
-def run_bot_actions(driver, wait, account_file, account_index=None, total_accounts=None):
+def click_start_in_channel(driver, wait, channel_name):
+    """Переходит в канал и нажимает кнопку START"""
+    # Проверяем формат имени канала
+    if not channel_name.startswith('@'):
+        print(f"[-] Ошибка: имя канала должно начинаться с @, получено: {channel_name}")
+        return False
+    
+    # Создаем URL канала
+    channel_url = TARGET_CHAT_URL_TEMPLATE.format(channel_name)
+    main_window = driver.current_window_handle
+
+    try:
+        # Открываем канал в новой вкладке
+        driver.execute_script("window.open(arguments[0]);", channel_url)
+        driver.switch_to.window(driver.window_handles[-1])
+        print(f"[+] Открыли канал {channel_name} в новой вкладке")
+
+        # Нажимаем кнопку START
+        try:
+            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+            
+            # Ищем кнопку START по тексту
+            start_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'START')]"))
+            )
+            
+            start_button.click()
+            print(f"[+] Успешно нажали кнопку START в канале: {channel_name}")
+            
+            # Ждем немного для завершения действия
+            time.sleep(2)
+            return True
+            
+        except Exception as e:
+            print(f"[-] Ошибка при нажатии кнопки START в канале {channel_name}: {e}")
+            
+            # Альтернативный поиск кнопки по классам, если по тексту не нашли
+            try:
+                print("[*] Пробуем альтернативный поиск кнопки START...")
+                alternative_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button.btn-primary, button.popup-button, button.primary"))
+                )
+                alternative_button.click()
+                print(f"[+] Успешно нажали кнопку START (альтернативный поиск) в канале: {channel_name}")
+                time.sleep(2)
+                return True
+            except Exception as e2:
+                print(f"[-] Не удалось найти кнопку START альтернативным способом: {e2}")
+                return False
+
+    except Exception as e:
+        print(f"[-] Ошибка при открытии канала {channel_name}: {e}")
+        return False
+    
+    finally:
+        # Всегда закрываем вкладку и возвращаемся к основному окну
+        try:
+            driver.close()
+            driver.switch_to.window(main_window)
+            print("[+] Вернулись в основное окно")
+        except Exception as e:
+            print(f"[-] Ошибка при возврате в основное окно: {e}")
+
+def click_start_bot_button(driver, wait):
+    """Нажимает кнопку запуска игры бота"""
+    try:
+        # Нажимаем кнопку команд бота
+        click_button(driver, wait, "div.new-message-bot-commands-view")
+        print("[+] Кнопка команд нажата")
+        
+        # Нажимаем кнопку запуска игры
+        wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.popup-button.btn.primary.rp")))
+        click_button(driver, wait, "button.popup-button.btn.primary.rp")
+        print("[+] Кнопка запуска игры нажата")
+        return True
+    except Exception as e:
+        print(f"[-] Ошибка при нажатии кнопки старта бота: {e}")
+        return False
+
+def run_bot_roullete_actions(driver, wait, account_file, account_index=None, total_accounts=None):
     """Запускает полную последовательность действий бота для указанного аккаунта в существующей сессии"""
     if not os.path.exists(account_file):
         print(f"[-] Файл аккаунта не найден: {account_file}")
@@ -269,14 +348,10 @@ def run_bot_actions(driver, wait, account_file, account_index=None, total_accoun
 
         # Основная последовательность действий с ботом
         try:
-            # Нажимаем кнопку команд бота
-            click_button(driver, wait, "div.new-message-bot-commands-view")
-            print("[+] Кнопка команд нажата")
-            
-            # Нажимаем кнопку запуска игры
-            wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.popup-button.btn.primary.rp")))
-            click_button(driver, wait, "button.popup-button.btn.primary.rp")
-            print("[+] Кнопка запуска игры нажата")
+            # Используем отдельную функцию для нажатия кнопки старта бота
+            if not click_start_bot_button(driver, wait):
+                print("[-] Не удалось нажать кнопку старта бота")
+                return False
             
             # Переключаемся в iframe
             wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "iframe")))
@@ -378,7 +453,7 @@ def run_all_accounts():
     try:
         for i, account_file in enumerate(accounts):
             try:
-                success = run_bot_actions(driver, wait, account_file, account_index=i, total_accounts=len(accounts))
+                success = run_bot_roullete_actions(driver, wait, account_file, account_index=i, total_accounts=len(accounts))
                 if success:
                     successful += 1
                 else:
@@ -416,6 +491,8 @@ def main():
                        help='Показать список всех аккаунтов')
     parser.add_argument('--all', action='store_true',
                        help='Запустить для всех аккаунтов (по умолчанию)')
+    parser.add_argument('--account', type=str,
+                       help='Указать конкретный аккаунт')
     
     args = parser.parse_args()
     
@@ -431,6 +508,7 @@ def main():
         return
     
     if args.register:
+        # Теперь args.account доступен, но может быть None
         register_new_account(args.account)
         return
     
